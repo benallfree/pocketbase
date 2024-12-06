@@ -265,12 +265,12 @@ func Serve(app core.App, config ServeConfig) error {
 		regular.Printf("└─ Dashboard: %s\n", color.CyanString("%s/", dashboardURL))
 	}
 
-	go func() {
-		installerErr := loadInstaller(app, dashboardURL)
-		if installerErr != nil {
-			app.Logger().Warn("Failed to initialize installer", "error", installerErr)
-		}
-	}()
+	// go func() {
+	// 	installerErr := loadInstaller(app, dashboardURL)
+	// 	if installerErr != nil {
+	// 		app.Logger().Warn("Failed to initialize installer", "error", installerErr)
+	// 	}
+	// }()
 
 	var serveErr error
 	if config.HttpsAddr != "" {

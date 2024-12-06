@@ -1,7 +1,9 @@
 package pocketbase
 
 import (
+	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -10,8 +12,11 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/cmd"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/plugins/jsvm"
+	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/list"
 	"github.com/spf13/cobra"
 
@@ -189,6 +194,94 @@ func (pb *PocketBase) Execute() error {
 	return pb.OnTerminate().Trigger(event, func(e *core.TerminateEvent) error {
 		return e.App.ResetBootstrapState()
 	})
+}
+
+// Serve initializes the application (if not already) and serves the application
+// with graceful shutdown support.
+func (pb *PocketBase) Serve(subdomain string, port int) error {
+	// ensureDir creates a directory if it doesn't exist
+	ensureDir := func(path string) error {
+		return os.MkdirAll(path, 0755)
+	}
+
+	// Ensure subdomain directory exists
+	subdomainDir := filepath.Join("data", subdomain)
+	if err := ensureDir(subdomainDir); err != nil {
+		panic(fmt.Errorf("failed to create subdomain directory: %w", err))
+	}
+
+	// Register jsvm plugin
+	jsvm.MustRegister(pb, jsvm.Config{
+		MigrationsDir: filepath.Join(subdomainDir, "pb_migrations"),
+		HooksDir:      filepath.Join(subdomainDir, "pb_hooks"),
+		HooksWatch:    true,
+	})
+
+	// static route to serves files from the provided public dir
+	// (if publicDir exists and the route path is not already defined)
+	publicDir := filepath.Join(subdomainDir, "pb_public")
+	indexFallback := true
+	pb.OnServe().Bind(&hook.Handler[*core.ServeEvent]{
+		Func: func(e *core.ServeEvent) error {
+			if !e.Router.HasRoute(http.MethodGet, "/{path...}") {
+				e.Router.GET("/{path...}", apis.Static(os.DirFS(publicDir), indexFallback))
+			}
+
+			return e.Next()
+		},
+		Priority: 999, // execute as latest as possible to allow users to provide their own route
+	})
+
+	if !pb.skipBootstrap() {
+		if err := pb.Bootstrap(); err != nil {
+			return err
+		}
+	}
+
+	serveErr := make(chan error, 1)
+	done := make(chan bool, 1)
+
+	// listen for interrupt signal to gracefully shutdown the application
+	go func() {
+		sigch := make(chan os.Signal, 1)
+		signal.Notify(sigch, os.Interrupt, syscall.SIGTERM)
+		<-sigch
+
+		done <- true
+	}()
+
+	// execute the root command
+	go func() {
+		httpAddr := fmt.Sprintf("127.0.0.1:%d", port)
+		httpsAddr := ""
+		showStartBanner := false
+		allowedOrigins := []string{}
+		certificateDomains := []string{}
+
+		serveErr <- apis.Serve(pb, apis.ServeConfig{
+			HttpAddr:           httpAddr,
+			HttpsAddr:          httpsAddr,
+			ShowStartBanner:    showStartBanner,
+			AllowedOrigins:     allowedOrigins,
+			CertificateDomains: certificateDomains,
+		})
+
+		done <- true
+	}()
+
+	<-done
+
+	// trigger cleanups
+	event := new(core.TerminateEvent)
+	event.App = pb
+	termError := pb.OnTerminate().Trigger(event, func(e *core.TerminateEvent) error {
+		return e.App.ResetBootstrapState()
+	})
+
+	if err := <-serveErr; err != nil {
+		return err
+	}
+	return termError
 }
 
 // eagerParseFlags parses the global app flags before calling pb.RootCmd.Execute().
