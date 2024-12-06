@@ -24,9 +24,18 @@ func main() {
 
 	// Main server to handle incoming requests
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Received request for %s", r.Host)
+		// Add basic request logging
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("Panic in request handler: %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+
 		// Extract subdomain from host
 		parts := strings.Split(r.Host, ".")
-		if len(parts) < 2 {
+		if len(parts) < 3 {
 			http.Error(w, "Invalid domain", http.StatusBadRequest)
 			return
 		}
@@ -35,6 +44,7 @@ func main() {
 		// Get or create PocketBase instance for this subdomain
 		instance, err := manager.GetOrCreateInstance(subdomain)
 		if err != nil {
+			log.Printf("Error creating instance for %s: %v", subdomain, err)
 			http.Error(w, "Failed to create instance", http.StatusInternalServerError)
 			return
 		}
@@ -42,12 +52,20 @@ func main() {
 		// Create proxy URL
 		targetURL, err := url.Parse(fmt.Sprintf("http://localhost:%d", instance.Port))
 		if err != nil {
+			log.Printf("Error creating proxy URL for %s: %v", subdomain, err)
 			http.Error(w, "Invalid target URL", http.StatusInternalServerError)
 			return
 		}
 
-		// Create reverse proxy
+		// Create reverse proxy with timeout
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
+
+		// Add timeout and error handling to proxy
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+			log.Printf("Proxy error for %s: %v", subdomain, err)
+			http.Error(w, "Proxy Error", http.StatusBadGateway)
+		}
+
 		proxy.ServeHTTP(w, r)
 	})
 

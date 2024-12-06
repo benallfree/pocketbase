@@ -12,21 +12,16 @@ import (
 	"time"
 )
 
-const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
-
-func generateRandomSubdomain(length int, r *rand.Rand) string {
-	result := make([]byte, length)
-	for i := range result {
-		result[i] = charset[r.Intn(len(charset))]
-	}
-	return string(result)
-}
-
-func makeRequest(url string, wg *sync.WaitGroup) {
+func makeRequest(host string, url string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	start := time.Now()
-	resp, err := http.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return
+	}
+	req.Host = host
+	resp, err := http.DefaultClient.Do(req)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -39,17 +34,9 @@ func makeRequest(url string, wg *sync.WaitGroup) {
 }
 
 func main() {
-	maxRequests := flag.Int("max", 500, "number of different subdomains to hit")
+	maxSubdomains := flag.Int("max", 500, "number of different subdomains to hit")
 	concurrency := flag.Int("concurrent", 50, "number of concurrent requests")
 	flag.Parse()
-
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	// Pre-generate the list of subdomains
-	subdomains := make([]string, *maxRequests)
-	for i := 0; i < *maxRequests; i++ {
-		subdomains[i] = generateRandomSubdomain(8, r)
-	}
 
 	// Create a channel to control concurrency
 	semaphore := make(chan struct{}, *concurrency)
@@ -69,14 +56,14 @@ func main() {
 			case <-done:
 				return
 			default:
-				subdomain := subdomains[r.Intn(len(subdomains))]
-				url := fmt.Sprintf("http://%s.lvh.me/api/health", subdomain)
+				subdomain := fmt.Sprintf("%08d", rand.Intn(*maxSubdomains))
+				url := "http://localhost/api/health"
 
 				wg.Add(1)
 				semaphore <- struct{}{} // Acquire semaphore
 
 				go func(url string) {
-					makeRequest(url, &wg)
+					makeRequest(fmt.Sprintf("%s.lvh.me", subdomain), url, &wg)
 					<-semaphore // Release semaphore
 				}(url)
 			}
@@ -87,5 +74,4 @@ func main() {
 	<-stop
 	fmt.Println("\nShutting down gracefully...")
 	close(done)
-	wg.Wait()
 }

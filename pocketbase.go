@@ -3,7 +3,6 @@ package pocketbase
 import (
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,8 +14,6 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/cmd"
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/plugins/jsvm"
-	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/list"
 	"github.com/spf13/cobra"
 
@@ -198,39 +195,7 @@ func (pb *PocketBase) Execute() error {
 
 // Serve initializes the application (if not already) and serves the application
 // with graceful shutdown support.
-func (pb *PocketBase) Serve(subdomain string, port int) error {
-	// ensureDir creates a directory if it doesn't exist
-	ensureDir := func(path string) error {
-		return os.MkdirAll(path, 0755)
-	}
-
-	// Ensure subdomain directory exists
-	subdomainDir := filepath.Join("data", subdomain)
-	if err := ensureDir(subdomainDir); err != nil {
-		panic(fmt.Errorf("failed to create subdomain directory: %w", err))
-	}
-
-	// Register jsvm plugin
-	jsvm.MustRegister(pb, jsvm.Config{
-		MigrationsDir: filepath.Join(subdomainDir, "pb_migrations"),
-		HooksDir:      filepath.Join(subdomainDir, "pb_hooks"),
-		HooksWatch:    true,
-	})
-
-	// static route to serves files from the provided public dir
-	// (if publicDir exists and the route path is not already defined)
-	publicDir := filepath.Join(subdomainDir, "pb_public")
-	indexFallback := true
-	pb.OnServe().Bind(&hook.Handler[*core.ServeEvent]{
-		Func: func(e *core.ServeEvent) error {
-			if !e.Router.HasRoute(http.MethodGet, "/{path...}") {
-				e.Router.GET("/{path...}", apis.Static(os.DirFS(publicDir), indexFallback))
-			}
-
-			return e.Next()
-		},
-		Priority: 999, // execute as latest as possible to allow users to provide their own route
-	})
+func (pb *PocketBase) Serve(port int) error {
 
 	if !pb.skipBootstrap() {
 		if err := pb.Bootstrap(); err != nil {
