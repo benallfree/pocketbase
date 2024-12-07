@@ -12,19 +12,44 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/pluja/pocketbase"
 	"github.com/pocketbase/pocketbase/examples/pocker/core"
 )
 
+// Add this function to get Fly.io machine info
+func getFlyMachineInfo() map[string]string {
+	return map[string]string{
+		"region":     os.Getenv("FLY_REGION"),
+		"alloc_id":   os.Getenv("FLY_ALLOC_ID"),
+		"app_name":   os.Getenv("FLY_APP_NAME"),
+		"machine_id": os.Getenv("FLY_MACHINE_ID"),
+		"private_ip": os.Getenv("FLY_PRIVATE_IP"),
+	}
+}
+
 func main() {
+	// Add logging of Fly machine info at startup
+	if machineInfo := getFlyMachineInfo(); machineInfo["region"] != "" {
+		log.Printf("Running on Fly.io - Region: %s, Machine ID: %s, App: %s",
+			machineInfo["region"],
+			machineInfo["machine_id"],
+			machineInfo["app_name"],
+			machineInfo["private_ip"])
+	}
+
+	client := pocketbase.NewClient("http://localhost:8090",
+		pocketbase.WithAdminEmailPassword(os.Getenv("MOTHERSHIP_ADMIN_EMAIL"), os.Getenv("MOTHERSHIP_ADMIN_PASSWORD")))
+	log.Print("Mothership client authenticated")
+
 	// Add HTTP port flag
-	httpAddr := flag.String("http", "127.0.0.1:8080", "the HTTP server address")
+	httpAddr := flag.String("http", "0.0.0.0:8080", "the HTTP server address")
 	flag.Parse()
 
 	manager := core.NewServerManager()
 
 	// Main server to handle incoming requests
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Received request for %s", r.Host)
+		log.Printf("Received request for %s/%s from %s", r.Host, r.URL.Path, r.RemoteAddr)
 		// Add basic request logging
 		defer func() {
 			if err := recover(); err != nil {
@@ -40,6 +65,8 @@ func main() {
 			return
 		}
 		subdomain := parts[0]
+
+		log.Printf("Subdomain: %s", subdomain)
 
 		// Get or create PocketBase instance for this subdomain
 		instance, err := manager.GetOrCreateInstance(subdomain)
