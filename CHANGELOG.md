@@ -1,3 +1,14 @@
+## v0.23.6
+
+- Fixed `$filesystem.fileFromURL` documentation and generated type ([#6058](https://github.com/pocketbase/pocketbase/issues/6058)).
+
+- Fixed `X-Forwarded-For` header typo in the suggested UI "Common trusted proxy" headers ([#6063](https://github.com/pocketbase/pocketbase/pull/6063)).
+
+- Updated the `text` field max length validator error message to make it more clear ([#6066](https://github.com/pocketbase/pocketbase/issues/6066)).
+
+- Other minor fixes (updated Go deps, skipped unnecessary validator check when the default primary key pattern is used, updated JSVM types, etc.).
+
+
 ## v0.23.5
 
 - Fixed UI logs search not properly accounting for the "Include requests by superusers" toggle when multiple search expressions are used.
