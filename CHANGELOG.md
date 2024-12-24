@@ -1,3 +1,41 @@
+## v0.23.12
+
+- Added warning logs in case of mismatched `modernc.org/sqlite` and `modernc.org/libs` versions ([#6136](https://github.com/pocketbase/pocketbase/issues/6136#issuecomment-2556336962)).
+
+- Skipped the default body size limit middleware for the backup upload endpooint ([#6152](https://github.com/pocketbase/pocketbase/issues/6152)).
+
+
+## v0.23.11
+
+- Upgraded `golang.org/x/net` to 0.33.0 to fix [CVE-2024-45338](https://www.cve.org/CVERecord?id=CVE-2024-45338).
+  _PocketBase uses the vulnerable functions primarily for the auto html->text mail generation, but most applications shouldn't be affected unless you are manually embedding unrestricted user provided value in your mail templates._
+
+
+## v0.23.10
+
+- Renew the superuser file token cache when clicking on the thumb preview or download link ([#6137](https://github.com/pocketbase/pocketbase/discussions/6137)).
+
+- Upgraded `modernc.org/sqlite` to 1.34.3 to fix "disk io" error on arm64 systems.
+    _If you are extending PocketBase with Go and upgrading with `go get -u` make sure to manually set in your go.mod the `modernc.org/libc` indirect dependency to v1.55.3, aka. the exact same version the driver is using._
+
+
+## v0.23.9
+
+- Replaced `strconv.Itoa` with `strconv.FormatInt` to avoid the int64->int conversion overflow on 32-bit platforms ([#6132](https://github.com/pocketbase/pocketbase/discussions/6132)).
+
+
+## v0.23.8
+
+- Fixed Model->Record and Model->Collection hook events sync for nested and/or inner-hook transactions ([#6122](https://github.com/pocketbase/pocketbase/discussions/6122)).
+
+- Other minor improvements (updated Go and npm deps, added extra escaping for the default mail record params in case the emails are stored as html files, fixed code comment typos, etc.).
+
+
+## v0.23.7
+
+- Fixed JSVM exception -> Go error unwrapping when throwing errors from non-request hooks ([#6102](https://github.com/pocketbase/pocketbase/discussions/6102)).
+
+
 ## v0.23.6
 
 - Fixed `$filesystem.fileFromURL` documentation and generated type ([#6058](https://github.com/pocketbase/pocketbase/issues/6058)).
