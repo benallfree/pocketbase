@@ -213,6 +213,7 @@ func (pb *PocketBase) Execute() error {
 	})
 }
 
+// POCKETHOST: Custom launch function
 // Serve initializes the application (if not already) and serves the application
 // with graceful shutdown support.
 func (pb *PocketBase) Serve(port int) error {
