@@ -15,6 +15,7 @@ import (
 	"github.com/pocketbase/pocketbase/tools/list"
 	"github.com/pocketbase/pocketbase/tools/search"
 	"github.com/pocketbase/pocketbase/tools/security"
+	"github.com/spf13/cast"
 )
 
 // maxNestedRels defines the max allowed nested relations depth.
@@ -113,6 +114,11 @@ func (r *runner) run() (*search.ResolverResult, error) {
 			if modifier == lengthModifier && len(r.activeProps) == 3 {
 				return r.processRequestInfoLengthModifier(bodyField)
 			}
+
+			// check for body arrayble fields ":lower" modifier
+			if modifier == lowerModifier && len(r.activeProps) == 3 {
+				return r.processRequestInfoLowerModifier(bodyField)
+			}
 		}
 
 		// some other @request.* static field
@@ -191,6 +197,10 @@ func (r *runner) processCollectionField() (*search.ResolverResult, error) {
 }
 
 func (r *runner) processRequestAuthField() (*search.ResolverResult, error) {
+	if r.resolver.requestInfo == nil || r.resolver.requestInfo.Auth == nil || r.resolver.requestInfo.Auth.Collection() == nil {
+		return &search.ResolverResult{Identifier: "NULL"}, nil
+	}
+
 	// plain auth field
 	// ---
 	if _, ok := plainRequestAuthFields[r.fieldName]; ok {
@@ -199,10 +209,6 @@ func (r *runner) processRequestAuthField() (*search.ResolverResult, error) {
 
 	// resolve the auth collection field
 	// ---
-	if r.resolver.requestInfo == nil || r.resolver.requestInfo.Auth == nil || r.resolver.requestInfo.Auth.Collection() == nil {
-		return &search.ResolverResult{Identifier: "NULL"}, nil
-	}
-
 	collection := r.resolver.requestInfo.Auth.Collection()
 
 	r.activeCollectionName = collection.Name
@@ -260,6 +266,19 @@ func toSlice(value any) []any {
 	}
 
 	return result
+}
+
+func (r *runner) processRequestInfoLowerModifier(bodyField Field) (*search.ResolverResult, error) {
+	rawValue := cast.ToString(r.resolver.requestInfo.Body[bodyField.GetName()])
+
+	placeholder := "infoLower" + bodyField.GetName() + security.PseudorandomString(6)
+
+	result := &search.ResolverResult{
+		Identifier: "LOWER({:" + placeholder + "})",
+		Params:     dbx.Params{placeholder: rawValue},
+	}
+
+	return result, nil
 }
 
 func (r *runner) processRequestInfoLengthModifier(bodyField Field) (*search.ResolverResult, error) {
@@ -396,6 +415,10 @@ func (r *runner) processActiveProps() (*search.ResolverResult, error) {
 
 		field := collection.Fields.GetByName(prop)
 
+		if field != nil && field.GetHidden() && !r.allowHiddenFields {
+			return nil, fmt.Errorf("non-filterable field %q", prop)
+		}
+
 		// json field -> treat the rest of the props as json path
 		if field != nil && field.Type() == FieldTypeJSON {
 			var jsonPath strings.Builder
@@ -458,6 +481,10 @@ func (r *runner) processActiveProps() (*search.ResolverResult, error) {
 			}
 			if backField.Type() != FieldTypeRelation {
 				return nil, fmt.Errorf("invalid back relation field %q", parts[2])
+			}
+
+			if backField.GetHidden() && !r.allowHiddenFields {
+				return nil, fmt.Errorf("non-filterable back relation field %q", backField.GetName())
 			}
 
 			backRelField, ok := backField.(*RelationField)
@@ -713,11 +740,11 @@ func (r *runner) processLastProp(collection *Collection, prop string) (*search.R
 	// default
 	// -------------------------------------------------------
 	result := &search.ResolverResult{
-		Identifier: fmt.Sprintf("[[%s.%s]]", r.activeTableAlias, cleanFieldName),
+		Identifier: "[[" + r.activeTableAlias + "." + cleanFieldName + "]]",
 	}
 
 	if r.withMultiMatch {
-		r.multiMatch.valueIdentifier = fmt.Sprintf("[[%s.%s]]", r.multiMatchActiveTableAlias, cleanFieldName)
+		r.multiMatch.valueIdentifier = "[[" + r.multiMatchActiveTableAlias + "." + cleanFieldName + "]]"
 		result.MultiMatchSubQuery = r.multiMatch
 	}
 
@@ -740,6 +767,14 @@ func (r *runner) processLastProp(collection *Collection, prop string) (*search.R
 		result.Identifier = dbutils.JSONExtract(r.activeTableAlias+"."+cleanFieldName, "")
 		if r.withMultiMatch {
 			r.multiMatch.valueIdentifier = dbutils.JSONExtract(r.multiMatchActiveTableAlias+"."+cleanFieldName, "")
+		}
+	}
+
+	// account for the ":lower" modifier
+	if modifier == lowerModifier {
+		result.Identifier = "LOWER(" + result.Identifier + ")"
+		if r.withMultiMatch {
+			r.multiMatch.valueIdentifier = "LOWER(" + r.multiMatch.valueIdentifier + ")"
 		}
 	}
 

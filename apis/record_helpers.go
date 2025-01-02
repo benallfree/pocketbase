@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/mails"
 	"github.com/pocketbase/pocketbase/tools/router"
+	"github.com/pocketbase/pocketbase/tools/routine"
 	"github.com/pocketbase/pocketbase/tools/search"
 	"github.com/pocketbase/pocketbase/tools/security"
 )
@@ -479,40 +481,6 @@ func autoResolveRecordsFlags(app core.App, records []*core.Record, requestInfo *
 	return nil
 }
 
-// hasAuthManageAccess checks whether the client is allowed to have
-// [forms.RecordUpsert] auth management permissions
-// (e.g. allowing to change system auth fields without oldPassword).
-func hasAuthManageAccess(app core.App, requestInfo *core.RequestInfo, record *core.Record) bool {
-	if !record.Collection().IsAuth() {
-		return false
-	}
-
-	manageRule := record.Collection().ManageRule
-
-	if manageRule == nil || *manageRule == "" {
-		return false // only for superusers (manageRule can't be empty)
-	}
-
-	if requestInfo == nil || requestInfo.Auth == nil {
-		return false // no auth record
-	}
-
-	ruleFunc := func(q *dbx.SelectQuery) error {
-		resolver := core.NewRecordFieldResolver(app, record.Collection(), requestInfo, true)
-		expr, err := search.FilterData(*manageRule).BuildExpr(resolver)
-		if err != nil {
-			return err
-		}
-		resolver.UpdateQuery(q)
-		q.AndWhere(expr)
-		return nil
-	}
-
-	_, findErr := app.FindRecordById(record.Collection().Id, record.Id, ruleFunc)
-
-	return findErr == nil
-}
-
 var ruleQueryParams = []string{search.FilterQueryParam, search.SortQueryParam}
 var superuserOnlyRuleFields = []string{"@collection.", "@request."}
 
@@ -603,8 +571,28 @@ func authAlert(e *core.RequestEvent, authRecord *core.Record) error {
 	}
 
 	// send email alert for the new origin auth (skip first login)
+	//
+	// Note: The "fake" timeout is a temp solution to avoid blocking
+	//       for too long when the SMTP server is not accessible, due
+	//       to the lack of context cancellation support in the underlying
+	//       mailer and net/smtp package.
+	//       The goroutine technically "leaks" but we assume that the OS will
+	//       terminate the connection after some time (usually after 3-4 mins).
 	if !isFirstLogin && currentOrigin.IsNew() && authRecord.Email() != "" {
-		if err := mails.SendRecordAuthAlert(e.App, authRecord); err != nil {
+		mailSent := make(chan error, 1)
+
+		timer := time.AfterFunc(15*time.Second, func() {
+			mailSent <- errors.New("auth alert mail send wait timeout reached")
+		})
+
+		routine.FireAndForget(func() {
+			err := mails.SendRecordAuthAlert(e.App, authRecord)
+			timer.Stop()
+			mailSent <- err
+		})
+
+		err = <-mailSent
+		if err != nil {
 			return err
 		}
 	}

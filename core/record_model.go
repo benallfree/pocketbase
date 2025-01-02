@@ -37,9 +37,9 @@ var (
 type Record struct {
 	collection       *Collection
 	originalData     map[string]any
-	customVisibility *store.Store[bool]
-	data             *store.Store[any]
-	expand           *store.Store[any]
+	customVisibility *store.Store[string, bool]
+	data             *store.Store[string, any]
+	expand           *store.Store[string, any]
 
 	BaseModel
 
@@ -537,8 +537,8 @@ func newRecordsFromNullStringMaps(collection *Collection, rows []dbx.NullStringM
 func NewRecord(collection *Collection) *Record {
 	record := &Record{
 		collection:       collection,
-		data:             store.New[any](nil),
-		customVisibility: store.New[bool](nil),
+		data:             store.New[string, any](nil),
+		customVisibility: store.New[string, bool](nil),
 		originalData:     make(map[string]any, len(collection.Fields)),
 	}
 
@@ -681,7 +681,7 @@ func (m *Record) Expand() map[string]any {
 // SetExpand replaces the current Record's expand with the provided expand arg data (shallow copied).
 func (m *Record) SetExpand(expand map[string]any) {
 	if m.expand == nil {
-		m.expand = store.New[any](nil)
+		m.expand = store.New[string, any](nil)
 	}
 
 	m.expand.Reset(expand)
@@ -833,6 +833,10 @@ func (m *Record) IgnoreEmailVisibility(state bool) *Record {
 //
 // This could be used if you want to save only the record fields that you've changed
 // without overwrite other untouched fields in case of concurrent update.
+//
+// Note that the fields change comparison is based on the current fields against m.Original()
+// (aka. if you have performed save on the same Record instance multiple times you may have to refetch it,
+// so that m.Original() could reflect the last saved change).
 func (m *Record) IgnoreUnchangedFields(state bool) *Record {
 	m.ignoreUnchangedFields = state
 	return m
@@ -1409,12 +1413,18 @@ func onRecordValidate(e *RecordEvent) error {
 
 func onRecordSaveExecute(e *RecordEvent) error {
 	if e.Record.Collection().IsAuth() {
-		// ensure that the token key is different on password change
-		old := e.Record.Original()
-		if !e.Record.IsNew() &&
-			old.TokenKey() == e.Record.TokenKey() &&
-			old.Get(FieldNamePassword) != e.Record.Get(FieldNamePassword) {
-			e.Record.RefreshTokenKey()
+		// ensure that the token key is regenerated on password change or email change
+		if !e.Record.IsNew() {
+			lastSavedRecord, err := e.App.FindRecordById(e.Record.Collection(), e.Record.Id)
+			if err != nil {
+				return err
+			}
+
+			if lastSavedRecord.TokenKey() == e.Record.TokenKey() &&
+				(lastSavedRecord.Get(FieldNamePassword) != e.Record.Get(FieldNamePassword) ||
+					lastSavedRecord.Email() != e.Record.Email()) {
+				e.Record.RefreshTokenKey()
+			}
 		}
 
 		// cross-check that the auth record id is unique across all auth collections.
@@ -1452,7 +1462,7 @@ func onRecordDeleteExecute(e *RecordEvent) error {
 	//
 	// note: the select is outside of the transaction to minimize
 	// SQLITE_BUSY errors when mixing read&write in a single transaction
-	refs, err := e.App.FindCollectionReferences(e.Record.Collection())
+	refs, err := e.App.FindCachedCollectionReferences(e.Record.Collection())
 	if err != nil {
 		return err
 	}
@@ -1491,12 +1501,13 @@ func cascadeRecordDelete(app App, mainRecord *Record, refs map[*Collection][]Fie
 	for _, refCollection := range sortedRefKeys {
 		fields, ok := refs[refCollection]
 
-		if refCollection.IsView() || !ok {
+		if !ok || refCollection.IsView() {
 			continue // skip missing or view collections
 		}
 
+		recordTableName := inflector.Columnify(refCollection.Name)
+
 		for _, field := range fields {
-			recordTableName := inflector.Columnify(refCollection.Name)
 			prefixedFieldName := recordTableName + "." + inflector.Columnify(field.GetName())
 
 			query := app.RecordQuery(refCollection)

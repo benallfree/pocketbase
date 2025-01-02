@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,6 +19,7 @@ const (
 	eachModifier   string = "each"
 	issetModifier  string = "isset"
 	lengthModifier string = "length"
+	lowerModifier  string = "lower"
 )
 
 // ensure that `search.FieldResolver` interface is implemented
@@ -45,6 +47,26 @@ type RecordFieldResolver struct {
 	allowedFields     []string
 	joins             []*join
 	allowHiddenFields bool
+}
+
+// AllowedFields returns a copy of the resolver's allowed fields.
+func (r *RecordFieldResolver) AllowedFields() []string {
+	return slices.Clone(r.allowedFields)
+}
+
+// SetAllowedFields replaces the resolver's allowed fields with the new ones.
+func (r *RecordFieldResolver) SetAllowedFields(newAllowedFields []string) {
+	r.allowedFields = slices.Clone(newAllowedFields)
+}
+
+// AllowHiddenFields returns whether the current resolver allows filtering hidden fields.
+func (r *RecordFieldResolver) AllowHiddenFields() bool {
+	return r.allowHiddenFields
+}
+
+// SetAllowHiddenFields enables or disables hidden fields filtering.
+func (r *RecordFieldResolver) SetAllowHiddenFields(allowHiddenFields bool) {
+	r.allowHiddenFields = allowHiddenFields
 }
 
 // NewRecordFieldResolver creates and initializes a new `RecordFieldResolver`.
@@ -193,7 +215,14 @@ func (r *RecordFieldResolver) resolveStaticRequestField(path ...string) (*search
 		resultVal = val
 	}
 
-	placeholder := "f" + security.PseudorandomString(6)
+	placeholder := "f" + security.PseudorandomString(8)
+
+	if modifier == lowerModifier {
+		return &search.ResolverResult{
+			Identifier: "LOWER({:" + placeholder + "})",
+			Params:     dbx.Params{placeholder: resultVal},
+		}, nil
+	}
 
 	return &search.ResolverResult{
 		Identifier: "{:" + placeholder + "}",
@@ -355,7 +384,8 @@ func splitModifier(combined string) (string, string, error) {
 	switch parts[1] {
 	case issetModifier,
 		eachModifier,
-		lengthModifier:
+		lengthModifier,
+		lowerModifier:
 		return parts[0], parts[1], nil
 	}
 

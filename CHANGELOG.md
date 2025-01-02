@@ -1,8 +1,52 @@
+## v0.24.0
+
+- ⚠️ Removed the "dry submit" when executing the collections Create API rule
+    (you can find more details why this change was introduced and how it could affect your app in https://github.com/pocketbase/pocketbase/discussions/6073).
+    For most users it should be non-breaking change, BUT if you have Create API rules that uses self-references or view counters you may have to adjust them manually.
+    With this change the "multi-match" operators are also normalized in case the targetted colletion doesn't have any records
+    (_or in other words, `@collection.example.someField != "test"` will result to `true` if `example` collection has no records because it satisfies the condition that all available "example" records mustn't have `someField` equal to "test"_).
+    As a side-effect of all of the above minor changes, the record create API performance has been also improved ~4x times in high concurrent scenarios (500 concurrent clients inserting total of 50k records - [old (58.409064001s)](https://github.com/pocketbase/benchmarks/blob/54140be5fb0102f90034e1370c7f168fbcf0ddf0/results/hetzner_cax41_cgo.md#creating-50000-posts100k-reqs50000-conc500-rulerequestauthid----requestdatapublicisset--true) vs [new (13.580098262s)](https://github.com/pocketbase/benchmarks/blob/7df0466ac9bd62fe0a1056270d20ef82012f0234/results/hetzner_cax41_cgo.md#creating-50000-posts100k-reqs50000-conc500-rulerequestauthid----requestbodypublicisset--true)).
+
+- ⚠️ Changed the type definition of `store.Store[T any]` to `store.Store[K comparable, T any]` to allow support for custom store key types.
+    For most users it should be non-breaking change, BUT if you are calling `store.New[any](nil)` instances you'll have to specify the store key type, aka. `store.New[string, any](nil)`.
+
+- Added `@yesterday` and `@tomorrow` datetime filter macros.
+
+- Added `:lower` filter modifier (e.g. `title:lower = "lorem"`).
+
+- Added `mailer.Message.InlineAttachments` field for attaching inline files to an email (_aka. `cid` links_).
+
+- Added cache for the JSVM `arrayOf(m)`, `DynamicModel`, etc. dynamic `reflect` created types.
+
+- Added auth collection select for the settings "Send test email" popup ([#6166](https://github.com/pocketbase/pocketbase/issues/6166)).
+
+- Added `record.SetRandomPassword()` to simplify random password generation usually used in the OAuth2 or OTP record creation flows.
+    _The generated ~30 chars random password is assigned directly as bcrypt hash and ignores the `password` field plain value validators like min/max length or regex pattern._
+
+- Added option to list and trigger the registered app level cron jobs via the Web API and UI.
+
+- Added extra validators for the collection field `int64` options (e.g. `FileField.MaxSize`) restricting them to the max safe JSON number (2^53-1).
+
+- Added option to unset/overwrite the default PocketBase superuser installer using `ServeEvent.InstallerFunc`.
+
+- Added `app.FindCachedCollectionReferences(collection, excludeIds)` to speedup records cascade delete almost twice for projects with many collections.
+
+- Added `tests.NewTestAppWithConfig(config)` helper if you need more control over the test configurations like `IsDev`, the number of allowed connections, etc.
+
+- Invalidate all record tokens when the auth record email is changed programmatically or by a superuser ([#5964](https://github.com/pocketbase/pocketbase/issues/5964)).
+
+- Eagerly interrupt waiting for the email alert send in case it takes longer than 15s.
+
+- Normalized the hidden fields filter checks and allow targetting hidden fields in the List API rule.
+
+- Fixed "Unique identify fields" input not refreshing on unique indexes change ([#6184](https://github.com/pocketbase/pocketbase/issues/6184)).
+
+
 ## v0.23.12
 
-- Added warning logs in case of mismatched `modernc.org/sqlite` and `modernc.org/libs` versions ([#6136](https://github.com/pocketbase/pocketbase/issues/6136#issuecomment-2556336962)).
+- Added warning logs in case of mismatched `modernc.org/sqlite` and `modernc.org/libc` versions ([#6136](https://github.com/pocketbase/pocketbase/issues/6136#issuecomment-2556336962)).
 
-- Skipped the default body size limit middleware for the backup upload endpooint ([#6152](https://github.com/pocketbase/pocketbase/issues/6152)).
+- Skipped the default body size limit middleware for the backup upload endpoint ([#6152](https://github.com/pocketbase/pocketbase/issues/6152)).
 
 
 ## v0.23.11
@@ -55,7 +99,7 @@
 
 - Other minor fixes (comment typos, JSVM types update).
 
-- Updated Go deps and the min Go releleaser GitHub action version to 1.23.4.
+- Updated Go deps and the min Go release GitHub action version to 1.23.4.
 
 
 ## v0.23.4

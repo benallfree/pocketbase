@@ -70,7 +70,7 @@ var _ App = (*BaseApp)(nil)
 type BaseApp struct {
 	config              *BaseAppConfig
 	txInfo              *txAppInfo
-	store               *store.Store[any]
+	store               *store.Store[string, any]
 	cron                *cron.Cron
 	settings            *Settings
 	subscriptionsBroker *subscriptions.Broker
@@ -194,7 +194,7 @@ type BaseApp struct {
 func NewBaseApp(config BaseAppConfig) *BaseApp {
 	app := &BaseApp{
 		settings:            newDefaultSettings(),
-		store:               store.New[any](nil),
+		store:               store.New[string, any](nil),
 		cron:                cron.New(),
 		subscriptionsBroker: subscriptions.NewBroker(),
 		config:              &config,
@@ -532,7 +532,7 @@ func (app *BaseApp) Settings() *Settings {
 }
 
 // Store returns the app runtime store.
-func (app *BaseApp) Store() *store.Store[any] {
+func (app *BaseApp) Store() *store.Store[string, any] {
 	return app.store
 }
 
@@ -599,6 +599,14 @@ func (app *BaseApp) NewMailClient() mailer.Mailer {
 								attachmentKeys = append(attachmentKeys, k)
 							}
 							fmt.Fprintf(mailLog, "├─ Attachments: %v\n", attachmentKeys)
+						}
+
+						if len(ae.Message.InlineAttachments) > 0 {
+							attachmentKeys := make([]string, 0, len(ae.Message.InlineAttachments))
+							for k := range ae.Message.InlineAttachments {
+								attachmentKeys = append(attachmentKeys, k)
+							}
+							fmt.Fprintf(mailLog, "├─ InlineAttachments: %v\n", attachmentKeys)
 						}
 
 						const indentation = "        "
